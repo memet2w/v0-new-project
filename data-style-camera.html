@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>المسح الذكي - Data Style</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      overflow: hidden;
+      font-family: 'Segoe UI', sans-serif;
+      color: white;
+      text-align: center;
+    }
+    video, canvas {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      top: 0; left: 0;
+    }
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+    }
+    #instructions {
+      position: absolute;
+      top: 20px;
+      width: 100%;
+      text-align: center;
+      font-size: 1.2rem;
+      z-index: 3;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+    }
+    #countdown {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 5rem;
+      z-index: 4;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+  <canvas id="overlay"></canvas>
+  <div id="instructions">يرجى الوقوف في منتصف الكاميرا - يتم عرض خريطة الجسم</div>
+  <div id="countdown"></div>
+
+  <script>
+    let video = document.getElementById("video");
+    let canvas = document.getElementById("canvas");
+    let ctx = canvas.getContext("2d");
+    let overlay = document.getElementById("overlay");
+    let overlayCtx = overlay.getContext("2d");
+    let countdownEl = document.getElementById("countdown");
+    let instructions = document.getElementById("instructions");
+
+    let currentStep = 0;
+    const steps = ["أمام", "يمين", "يسار", "خلف"];
+    const capturedImages = [];
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      video.srcObject = stream;
+      await new Promise(resolve => video.onloadedmetadata = resolve);
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      overlay.width = video.videoWidth;
+      overlay.height = video.videoHeight;
+    }
+
+    async function startPoseDetection() {
+      const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MediaPipePose, {
+        runtime: "mediapipe",
+        modelType: "full",
+        solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/pose"
+      });
+
+      async function render() {
+        const poses = await detector.estimatePoses(video);
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+        if (poses.length > 0) {
+          for (const kp of poses[0].keypoints) {
+            if (kp.score > 0.5) {
+              overlayCtx.beginPath();
+              overlayCtx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
+              overlayCtx.fillStyle = "#00FFAA";
+              overlayCtx.fill();
+            }
+          }
+        }
+        requestAnimationFrame(render);
+      }
+
+      render();
+    }
+
+    function startCaptureStep() {
+      if (currentStep >= steps.length) {
+        instructions.innerText = "اكتمل المسح! يتم تجهيز نموذجك...";
+        setTimeout(() => {
+          window.location.href = "data-style-final-ui.html";
+        }, 2000);
+        return;
+      }
+
+      instructions.innerText = `الرجاء الوقوف باتجاه: ${steps[currentStep]}`;
+      let count = 5;
+      countdownEl.innerText = count;
+
+      const countdownInterval = setInterval(() => {
+        count--;
+        countdownEl.innerText = count;
+        if (count === 0) {
+          clearInterval(countdownInterval);
+          captureImage();
+          currentStep++;
+          startCaptureStep();
+        }
+      }, 1000);
+    }
+
+    function captureImage() {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataURL = canvas.toDataURL("image/png");
+      capturedImages.push(dataURL);
+    }
+
+    window.onload = async () => {
+      await setupCamera();
+      await startPoseDetection();
+      startCaptureStep();
+    };
+  </script>
+</body>
+</html>
